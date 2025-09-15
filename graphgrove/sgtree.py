@@ -73,8 +73,8 @@ class NNS_L2(object):
     return sgtreec.size(self.this)
 
   @classmethod
-  def from_matrix(cls, points, trunc=-1, use_multi_core=-1):
-    ptr = sgtreec.new(points, trunc, use_multi_core)
+  def from_matrix(cls, points, trunc=-1, use_multi_core=-1, new_base=1.3):
+    ptr = sgtreec.new(points, trunc, use_multi_core, new_base)
     return cls(ptr)
 
   @classmethod
@@ -96,9 +96,9 @@ class NNS_L2(object):
   def remove(self, point):
     return sgtreec.remove(self.this, point)
 
-  def NearestNeighbour(self, points, use_multi_core=-1, return_points=False):
+  def NearestNeighbour(self, points, use_multi_core=-1, return_points=False, filename='traces.json'):
     return sgtreec.NearestNeighbour(self.this, points, use_multi_core,
-                                       return_points)
+                                       return_points, filename)
 
   def kNearestNeighbours(self,
                          points,
@@ -133,6 +133,9 @@ class NNS_L2(object):
 
   def stats(self):
     return sgtreec.stats(self.this)
+
+  def dump_tree(self, filename):
+    return sgtreec.dump_tree(self.this, filename)
 
   def test_covering(self):
     return sgtreec.test_covering(self.this)

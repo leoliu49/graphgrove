@@ -22,11 +22,9 @@ scalar* SGTree::compute_pow_table()
 {
     scalar* powdict = new scalar[2048];
     for (int i = 0; i < 2048; ++i)
-        powdict[i] = (scalar) pow(SGTree::base, i - 1024);
+        powdict[i] = (scalar) pow(base, i - 1024);
     return powdict;
 }
-
-scalar* SGTree::powdict = compute_pow_table();
 
 #ifdef PRINTVER
 std::map<int, std::atomic<unsigned>> SGTree::Node::dist_count;
@@ -37,7 +35,7 @@ bool SGTree::insert(SGTree::Node* current, const pointType& p, unsigned UID, sca
 {
     bool result = false;
 #ifdef DEBUG
-    if (current->dist(p) > current->covdist())
+    if (current->dist(p) > current->covdist(powdict))
         throw std::runtime_error("Internal insert got wrong input!");
     if (truncateLevel > 0 && current->level < maxScale - truncateLevel)
     {
@@ -80,11 +78,11 @@ bool SGTree::insert(SGTree::Node* current, const pointType& p, unsigned UID, sca
     {
         //release read lock then enter child
         current->mut.unlock_shared();
-        std::cout << "Duplicate entry!!!" << std::endl;
+        // std::cout << "Duplicate entry!!!" << std::endl;
         // std::cout << current->children[child_idx]->_p << std::endl;
         // std::cout << p << std::endl;
     }
-    else if (use_nesting && dist_child > dist_current && dist_current <= current->sepdist()) 
+    else if (use_nesting && dist_child > dist_current && dist_current <= current->sepdist(powdict))
     {
         // nesting case where we need to add a new copy of the current node as a child of itself.
         assert(current->UID != current->children[child_idx]->UID);
@@ -116,7 +114,7 @@ bool SGTree::insert(SGTree::Node* current, const pointType& p, unsigned UID, sca
         }
 
     }
-    else if (dist_child <= current->sepdist() && (!use_nesting || dist_child <= dist_current))
+    else if (dist_child <= current->sepdist(powdict) && (!use_nesting || dist_child <= dist_current))
     {
         //release read lock then enter child
         Node* child = current->children[child_idx];
@@ -198,18 +196,18 @@ bool SGTree::insert(const pointType& p, unsigned UID)
     scalar curr_root_dist = root->dist(p);
     if (curr_root_dist <= 0.0)
     {
-        std::cout << "Duplicate entry!!!" << std::endl;
+        // std::cout << "Duplicate entry!!!" << std::endl;
         // std::cout << root->_p << std::endl;
         // std::cout << p << std::endl;
     }
-    else if (curr_root_dist > root->covdist())
+    else if (curr_root_dist > root->covdist(powdict))
     {
-        std::cout<<"Entered case 1: " << root->dist(p) << " " << root->covdist() << " " << root->level <<std::endl;
+        std::cout<<"Entered case 1: " << root->dist(p) << " " << root->covdist(powdict) << " " << root->level <<std::endl;
         std::pair<SGTree::Node*, scalar> fn = FurthestNeighbour(p);
         global_mut.unlock_shared();
         std::cout<<"Requesting global lock!" <<std::endl;
         global_mut.lock();
-        while (root->dist(p) > base * root->covdist()/(base-1))
+        while (root->dist(p) > base * root->covdist(powdict)/(base-1))
         {
             SGTree::Node* current = root;
             SGTree::Node* parent = NULL;
@@ -291,6 +289,59 @@ std::pair<SGTree::Node*, scalar> SGTree::NearestNeighbour(const pointType &p) co
             nn.first = curNode;
             nn.second = curDist;
         }
+
+        // Now push children in sorted order if potential NN among them
+        unsigned num_children = unsigned(curNode->children.size());
+        local_idx.resize(num_children);
+        local_dists.resize(num_children);
+        std::iota(local_idx.begin(), local_idx.end(), 0);
+        for (unsigned i = 0; i < num_children; ++i)
+            local_dists[i] = curNode->children[i]->dist(p);
+        std::sort(std::begin(local_idx), std::end(local_idx), comp_x);
+
+        const scalar best_dist_now = nn.second;
+        for (const auto& child_idx : local_idx)
+        {
+            Node* child = curNode->children[child_idx];
+            scalar dist_child = local_dists[child_idx];
+            if (best_dist_now > dist_child - child->maxdistUB)
+                travel.emplace_back(child, dist_child);
+        }
+    }
+    return nn;
+}
+
+std::pair<SGTree::Node*, scalar> SGTree::NearestNeighbour(const pointType &p, std::vector<std::pair<int,int>>& trace) const
+{
+    std::pair<SGTree::Node*, scalar> nn(root, root->dist(p));
+    std::vector<std::pair<SGTree::Node*, scalar>> travel;
+    SGTree::Node* curNode;
+    scalar curDist;
+
+    // Scratch memory
+    std::vector<int> local_idx;
+    std::vector<scalar> local_dists;
+    auto comp_x = [&local_dists](int a, int b) { return local_dists[a] > local_dists[b]; };
+
+    // Initialize with root
+    travel.push_back(nn);
+
+    // Pop, print and then push the children
+    while (travel.size() > 0)
+    {
+        // Pop
+        curNode = travel.back().first;
+        curDist = travel.back().second;
+        travel.pop_back();
+
+        // If the current node is the nearest neighbour
+        if (curDist < nn.second)
+        {
+            nn.first = curNode;
+            nn.second = curDist;
+        }
+
+        trace.push_back({curNode->level, curNode->children.size()});
 
         // Now push children in sorted order if potential NN among them
         unsigned num_children = unsigned(curNode->children.size());
@@ -445,7 +496,7 @@ std::vector<std::pair<SGTree::Node*, scalar>> SGTree::kNearestNeighboursBeam(con
                         std::upper_bound( travel.begin(), travel.end(), pair_to_add, comp_pair),
                         pair_to_add
                     );
-                    // std::cout << "[added to beam 2]  less than " << current->sepdist() << " beam size " << beam.size() << " checking kid " << current->children[child_idx]->UID << " dist " << dist_child << std::endl;
+                    // std::cout << "[added to beam 2]  less than " << current->sepdist(powdict) << " beam size " << beam.size() << " checking kid " << current->children[child_idx]->UID << " dist " << dist_child << std::endl;
 
                     if (travel.size() > beamSize) {
                         travel.pop_back();
@@ -737,12 +788,14 @@ void SGTree::deserialize(char* buff)
 //constructor: NULL tree
 SGTree::SGTree(int truncate /*=-1*/ )
 {
+    base = SGTree::base_default;
     root = NULL;
     min_scale = 1000;
     max_scale = 0;
     truncate_level = truncate;
     N = 0;
     D = 0;
+    powdict = compute_pow_table();
 }
 
 //constructor: needs atleast 1 point to make a valid covertree
@@ -754,20 +807,28 @@ SGTree::SGTree(const pointType& p, int truncateArg /*=-1*/)
     N = 1;
     D = unsigned(p.rows());
 
+    base = SGTree::base_default;
+
     root = new SGTree::Node;
     root->_p = p;
     root->ID = 0;
     root->UID = 0;
     root->level = 0;
     root->maxdistUB = 0;
+    powdict = compute_pow_table();
 }
 
 //constructor: cover tree using points in the list between begin and end
-SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, unsigned cores /*=true*/)
+SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, unsigned cores /*=true*/, double new_base)
 {
     size_t numPoints = pMatrix.cols();
     bool use_multi_core = cores > 1;
     this->cores = cores;
+
+    // 0. Set base or gamma
+    base = static_cast<scalar>(new_base);
+    powdict = compute_pow_table();
+    std::cout << "SG Tree with base " << base << std::endl;
 
     //1. Compute the mean of entire data
     pointType mx = utils::ParallelAddMatrixNP(pMatrix).get_result()/(1.0*numPoints);
@@ -812,8 +873,7 @@ SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, u
             for (size_t i = 0; i < numPoints-1; ++i){
                 // std::cout << "Insert i " << i << " idx[i] " << idx[i] << std::endl;
                 utils::progressbar(i, numPoints);
-                if(!insert(pMatrix.col(idx[i]), idx[i]))
-                    std::cout << "Insert failed!!! " << idx[i] << std::endl;
+                insert(pMatrix.col(idx[i]), idx[i]);
             }
         }
         else
@@ -821,15 +881,13 @@ SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, u
             for (size_t i = 0; i < 50000; ++i){
                 // std::cout << "Insert i " << i << " idx[i] " << idx[i] << std::endl;
                 utils::progressbar(i, 50000);
-                if(!insert(pMatrix.col(idx[i]), idx[i]))
-                    std::cout << "Insert failed!!! " << idx[i] << std::endl;
+                insert(pMatrix.col(idx[i]), idx[i]);
             }
             utils::progressbar(50000, 50000);
             std::cerr<<std::endl;
             utils::parallel_for_progressbar(50000, numPoints-1, [&](size_t i)->void{
                 // std::cout << "Insert i " << i << " idx[i] " << idx[i] << std::endl;
-                if(!insert(pMatrix.col(idx[i]), idx[i]))
-                    std::cout << "Insert failed!!! " << idx[i] << std::endl;
+                insert(pMatrix.col(idx[i]), idx[i]);
             }, cores);
         }
     }
@@ -837,8 +895,7 @@ SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, u
     {
         for (size_t i = 0; i < numPoints-1; ++i){
             utils::progressbar(i, numPoints);
-            if(!insert(pMatrix.col(idx[i]), idx[i]))
-                std::cout << "Insert failed!!! " << idx[i] <<  std::endl;
+            insert(pMatrix.col(idx[i]), idx[i]);
         }
     }
    // calc_maxdist();
@@ -867,6 +924,8 @@ SGTree::~SGTree()
 
         delete current;
     }
+
+    delete powdict;
 }
 
 
@@ -875,9 +934,15 @@ SGTree::~SGTree()
 //contructor: using matrix in col-major form!
 SGTree* SGTree::from_matrix(const Eigen::Map<matrixType>& pMatrix, int truncate /*=-1*/, unsigned cores /*=true*/)
 {
-    std::cout << "SG Tree [v008] with base " << SGTree::base << std::endl;
+    return from_matrix(pMatrix, truncate, cores, SGTree::base_default);
+}
+
+//contructor: using matrix in col-major form!
+SGTree* SGTree::from_matrix(const Eigen::Map<matrixType>& pMatrix, int truncate /*=-1*/, unsigned cores /*=true*/, double new_base)
+{
+    std::cout << "SG Tree [v008] with base " << new_base << std::endl;
     std::cout << "SG Tree with Number of Cores: " << cores << std::endl;
-    SGTree* cTree = new SGTree(pMatrix, truncate, cores);
+    SGTree* cTree = new SGTree(pMatrix, truncate, cores, new_base);
     return cTree;
 }
 
@@ -904,13 +969,67 @@ bool SGTree::check_covering() const
         for (const auto& child : *curNode)
         {
             travel.push(child);
-            if( curNode->dist(child) > curNode->covdist() )
+            if( curNode->dist(child) > curNode->covdist(powdict) )
                 result = false;
-            //std::cout << *curNode << " -> " << *child << " @ " << curNode->dist(child) << " | " << curNode->covdist() << std::endl;
+            //std::cout << *curNode << " -> " << *child << " @ " << curNode->dist(child) << " | " << curNode->covdist(powdict) << std::endl;
         }
     }
 
     return result;
+}
+
+void SGTree::dump_tree(FILE* fp, SGTree::Node* node, int root_lvl, std::vector<std::vector<int>>& fanout_stats, std::vector<std::vector<scalar>>& distance_stats) const {
+    fprintf(fp, "{\"d\":%f,", node->maxdistUB);
+    fprintf(fp, "\"c\":[");
+
+    if (root_lvl-node->level >= fanout_stats.size()) {
+        fanout_stats.push_back({});
+        distance_stats.push_back({});
+    }
+    fanout_stats[root_lvl-node->level].push_back(node->children.size());
+    distance_stats[root_lvl-node->level].push_back(node->maxdistUB);
+
+    for (std::size_t i = 0; i < node->children.size(); i++) {
+        dump_tree(fp, node->children[i], root_lvl, fanout_stats, distance_stats);
+        if (i < node->children.size()-1)
+            fprintf(fp, ",");
+    }
+    fprintf(fp, "]}");
+}
+
+void SGTree::dump_tree(const char* filename) const
+{
+    FILE* fp = fopen(filename, "w");
+    std::vector<std::vector<int>> fanout_stats;
+    std::vector<std::vector<scalar>> distance_stats;
+    dump_tree(fp, root, root->level, fanout_stats, distance_stats);
+    fclose(fp);
+
+    char* new_filename = (char*)malloc(sizeof(char) * (((sizeof(filename))/(sizeof(filename[0]))) + 4));
+    sprintf(new_filename, "%s.top", filename);
+    fp = fopen(new_filename, "w");
+    fprintf(fp, "{\n");
+    for (std::size_t i = 0; i < fanout_stats.size(); i++) {
+        fprintf(fp, "\"%d\": {\n", root->level-((int)i));
+        fprintf(fp, "\"degree\": [");
+        for (std::size_t j = 0; j < fanout_stats[i].size(); j++) {
+            fprintf(fp, "%d", fanout_stats[i][j]);
+            if (j < fanout_stats[i].size()-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "],");
+        fprintf(fp, "\"distance\": [");
+        for (std::size_t j = 0; j < distance_stats[i].size(); j++) {
+            fprintf(fp, "%f", distance_stats[i][j]);
+            if (j < distance_stats[i].size()-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "]}");
+        if (i < fanout_stats.size()-1)
+            fprintf(fp, ",");
+    }
+    fprintf(fp, "}\n");
+    free(new_filename);
 }
 
 

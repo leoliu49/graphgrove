@@ -33,9 +33,10 @@ static PyObject *new_sgtreec(PyObject *self, PyObject *args)
 {
   int trunc;
   long use_multi_core;
+  double new_base;
   PyArrayObject *in_array;
 
-  if (!PyArg_ParseTuple(args,"O!il:new_sgtreec", &PyArray_Type, &in_array, &trunc, &use_multi_core))
+  if (!PyArg_ParseTuple(args,"O!ild:new_sgtreec", &PyArray_Type, &in_array, &trunc, &use_multi_core, &new_base))
     return NULL;
 
   npy_intp numPoints = PyArray_DIM(in_array, 0);
@@ -45,7 +46,7 @@ static PyObject *new_sgtreec(PyObject *self, PyObject *args)
   scalar * fnp = reinterpret_cast< scalar * >( PyArray_GetPtr(in_array, idx) );
   Eigen::Map<matrixType> pointMatrix(fnp, numDims, numPoints);
 
-  SGTree* cTree = SGTree::from_matrix(pointMatrix, trunc, use_multi_core);
+  SGTree* cTree = SGTree::from_matrix(pointMatrix, trunc, use_multi_core, new_base);
   size_t int_ptr = reinterpret_cast< size_t >(cTree);
   size_t node_ptr = reinterpret_cast< size_t >(cTree->get_root());
 
@@ -170,9 +171,10 @@ static PyObject *sgtreec_nn(PyObject *self, PyObject *args) {
   int return_points;
   PyArrayObject *in_array;
   PyObject *return_value; 
+  const char* filename;
 
   /*  parse the input, from python int to c++ int */
-  if (!PyArg_ParseTuple(args, "nO!lp:sgtreec_nn", &int_ptr, &PyArray_Type, &in_array, &cores, &return_points))
+  if (!PyArg_ParseTuple(args, "nO!lps:sgtreec_nn", &int_ptr, &PyArray_Type, &in_array, &cores, &return_points, &filename))
     return NULL;
 
   unsigned use_multi_core = (unsigned) cores;
@@ -192,13 +194,14 @@ static PyObject *sgtreec_nn(PyObject *self, PyObject *args) {
   scalar *dist = new scalar[numPoints];
   long *indices = new long[numPoints];
   scalar *results = nullptr;
+  std::vector<std::vector<std::pair<int,int>>> traces((std::size_t)numPoints);
   if(return_points!=0)
   {
     results = new scalar[numDims*numPoints];
     if(use_multi_core > 0)
     {
         utils::parallel_for_progressbar(0, numPoints, [&](npy_intp i)->void{
-            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i));
+            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i), traces[i]);
             npy_intp offset = i;
             dist[offset] = ct_nn.second;
             indices[offset] = ct_nn.first->UID;
@@ -211,7 +214,7 @@ static PyObject *sgtreec_nn(PyObject *self, PyObject *args) {
     else
     {
         for(npy_intp i = 0; i < numPoints; ++i) {
-            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i));
+            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i), traces[i]);
             npy_intp offset = i;
             dist[offset] = ct_nn.second;
             indices[offset] = ct_nn.first->UID;
@@ -237,7 +240,7 @@ static PyObject *sgtreec_nn(PyObject *self, PyObject *args) {
     if(use_multi_core > 0)
     {
         utils::parallel_for_progressbar(0, numPoints, [&](npy_intp i)->void{
-            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i));
+            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i), traces[i]);
             npy_intp offset = i;
             dist[offset] = ct_nn.second;
             indices[offset] = ct_nn.first->UID;
@@ -246,7 +249,7 @@ static PyObject *sgtreec_nn(PyObject *self, PyObject *args) {
     else
     {
         for(npy_intp i = 0; i < numPoints; ++i) {
-            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i));
+            std::pair<SGTree::Node*, scalar> ct_nn = obj->NearestNeighbour(queryPts.col(i), traces[i]);
             npy_intp offset = i;
             dist[offset] = ct_nn.second;
             indices[offset] = ct_nn.first->UID;
@@ -270,6 +273,23 @@ static PyObject *sgtreec_nn(PyObject *self, PyObject *args) {
   }
   std::cout << "Average number of distance computations: " << 1.0*tot_comp/numPoints << std::endl;
   #endif
+
+
+  FILE* fp = fopen(filename, "w");
+  fprintf(fp, "{\n");
+  for (std::size_t i = 0; i < traces.size(); i++) {
+    fprintf(fp, "\"%lu\": [", i);
+    for (std::size_t j = 0; j < traces[i].size(); j++) {
+        fprintf(fp, "[%d,%d]", traces[i][j].first, traces[i][j].second);
+        if (j < traces[i].size()-1)
+            fprintf(fp, ",");
+    }
+    fprintf(fp, "]");
+    if (i < traces.size()-1)
+        fprintf(fp, ",\n");
+  }
+  fprintf(fp, "}\n");
+  fclose(fp);
 
   return return_value;
 }
@@ -775,6 +795,22 @@ static PyObject *sgtreec_stats(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static PyObject *sgtreec_dump(PyObject *self, PyObject *args)
+{
+  SGTree *obj;
+  size_t int_ptr;
+  const char* filename;
+
+  /*  parse the input, from python int to c++ int */
+  if (!PyArg_ParseTuple(args, "ns:sgtreec_dump", &int_ptr, &filename))
+    return NULL;
+
+  obj = reinterpret_cast< SGTree * >(int_ptr);
+  obj->dump_tree(filename);
+
+  Py_RETURN_NONE;
+}
+
 static PyObject *sgtreec_size(PyObject *self, PyObject *args)
 {
   SGTree *obj;
@@ -928,6 +964,7 @@ PyMODINIT_FUNC PyInit_sgtreec(void)
     {"deserialize", sgtreec_deserialize, METH_VARARGS, "Construct a SG Tree from deserializing."},
     {"display", sgtreec_display, METH_VARARGS, "Display the SG Tree."},
     {"stats", sgtreec_stats, METH_VARARGS, "Print statistics of the SG Tree."},
+    {"dump_tree", sgtreec_dump, METH_VARARGS, "Dump SG Tree structure to a JSON file."},
     {"size", sgtreec_size, METH_VARARGS, "Return number of points in the SG Tree."},
     {"spreadout", sgtreec_spreadout, METH_VARARGS, "Find well spreadout k points."},
     {"test_covering", sgtreec_test_covering, METH_VARARGS, "Check if covering property is satisfied."},
