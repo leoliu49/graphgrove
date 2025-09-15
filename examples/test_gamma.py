@@ -51,7 +51,7 @@ print("Building time:", b_t, "seconds")
 
 print('Test k-Nearest Neighbours - Exact (k=1): ')
 t = gt()
-idx1, d1 = ct.kNearestNeighbours(y,1, use_multi_core=cores)
+idx1, d1 = ct.NearestNeighbour(y, use_multi_core=cores)
 b_t = gt() - t
 print("Query time - Exact:", b_t, "seconds")
 

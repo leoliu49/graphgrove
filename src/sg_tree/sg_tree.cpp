@@ -311,6 +311,59 @@ std::pair<SGTree::Node*, scalar> SGTree::NearestNeighbour(const pointType &p) co
     return nn;
 }
 
+std::pair<SGTree::Node*, scalar> SGTree::NearestNeighbour(const pointType &p, std::vector<std::pair<int,int>>& trace) const
+{
+    std::pair<SGTree::Node*, scalar> nn(root, root->dist(p));
+    std::vector<std::pair<SGTree::Node*, scalar>> travel;
+    SGTree::Node* curNode;
+    scalar curDist;
+
+    // Scratch memory
+    std::vector<int> local_idx;
+    std::vector<scalar> local_dists;
+    auto comp_x = [&local_dists](int a, int b) { return local_dists[a] > local_dists[b]; };
+
+    // Initialize with root
+    travel.push_back(nn);
+
+    // Pop, print and then push the children
+    while (travel.size() > 0)
+    {
+        // Pop
+        curNode = travel.back().first;
+        curDist = travel.back().second;
+        travel.pop_back();
+
+        // If the current node is the nearest neighbour
+        if (curDist < nn.second)
+        {
+            nn.first = curNode;
+            nn.second = curDist;
+        }
+
+        trace.push_back({curNode->level, curNode->children.size()});
+
+        // Now push children in sorted order if potential NN among them
+        unsigned num_children = unsigned(curNode->children.size());
+        local_idx.resize(num_children);
+        local_dists.resize(num_children);
+        std::iota(local_idx.begin(), local_idx.end(), 0);
+        for (unsigned i = 0; i < num_children; ++i)
+            local_dists[i] = curNode->children[i]->dist(p);
+        std::sort(std::begin(local_idx), std::end(local_idx), comp_x);
+
+        const scalar best_dist_now = nn.second;
+        for (const auto& child_idx : local_idx)
+        {
+            Node* child = curNode->children[child_idx];
+            scalar dist_child = local_dists[child_idx];
+            if (best_dist_now > dist_child - child->maxdistUB)
+                travel.emplace_back(child, dist_child);
+        }
+    }
+    return nn;
+}
+
 
 /****************************** k-Nearest Neighbours *************************************/
 

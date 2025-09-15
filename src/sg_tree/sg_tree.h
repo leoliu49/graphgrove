@@ -199,6 +199,7 @@ public:
 
     /*** Nearest Neighbour search ***/
     std::pair<SGTree::Node*, scalar> NearestNeighbour(const pointType &p) const;
+    std::pair<SGTree::Node*, scalar> NearestNeighbour(const pointType &p, std::vector<std::pair<int,int>>& trace) const;
 
     /*** k-Nearest Neighbour search ***/
     std::vector<std::pair<SGTree::Node*, scalar>> kNearestNeighbours(const pointType &p, unsigned k = 10) const;

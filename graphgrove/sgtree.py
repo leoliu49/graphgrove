@@ -96,9 +96,9 @@ class NNS_L2(object):
   def remove(self, point):
     return sgtreec.remove(self.this, point)
 
-  def NearestNeighbour(self, points, use_multi_core=-1, return_points=False):
+  def NearestNeighbour(self, points, use_multi_core=-1, return_points=False, filename='traces.json'):
     return sgtreec.NearestNeighbour(self.this, points, use_multi_core,
-                                       return_points)
+                                       return_points, filename)
 
   def kNearestNeighbours(self,
                          points,
