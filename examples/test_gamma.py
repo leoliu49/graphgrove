@@ -55,3 +55,4 @@ idx1, d1 = ct.kNearestNeighbours(y,1, use_multi_core=cores)
 b_t = gt() - t
 print("Query time - Exact:", b_t, "seconds")
 
+ct.dump_tree('test.json')

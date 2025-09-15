@@ -28,6 +28,7 @@
 #include <stack>
 #include <string>
 #include <vector>
+#include <cstdio>
 
 #include "utils.h"
 
@@ -215,6 +216,8 @@ public:
 
     /*** Unit Tests ***/
     bool check_covering() const;
+    void dump_tree(FILE* fp, SGTree::Node* node, int root_lvl, std::vector<std::vector<int>>& fanout_stats, std::vector<std::vector<scalar>>& distance_stats) const;
+    void dump_tree(const char* filename) const;
     void print_stats() const;
     void print_levels() const;
     void print_degrees() const;

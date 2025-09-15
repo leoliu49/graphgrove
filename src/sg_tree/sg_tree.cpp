@@ -925,6 +925,60 @@ bool SGTree::check_covering() const
     return result;
 }
 
+void SGTree::dump_tree(FILE* fp, SGTree::Node* node, int root_lvl, std::vector<std::vector<int>>& fanout_stats, std::vector<std::vector<scalar>>& distance_stats) const {
+    fprintf(fp, "{\"d\":%f,", node->maxdistUB);
+    fprintf(fp, "\"c\":[");
+
+    if (root_lvl-node->level >= fanout_stats.size()) {
+        fanout_stats.push_back({});
+        distance_stats.push_back({});
+    }
+    fanout_stats[root_lvl-node->level].push_back(node->children.size());
+    distance_stats[root_lvl-node->level].push_back(node->maxdistUB);
+
+    for (std::size_t i = 0; i < node->children.size(); i++) {
+        dump_tree(fp, node->children[i], root_lvl, fanout_stats, distance_stats);
+        if (i < node->children.size()-1)
+            fprintf(fp, ",");
+    }
+    fprintf(fp, "]}");
+}
+
+void SGTree::dump_tree(const char* filename) const
+{
+    FILE* fp = fopen(filename, "w");
+    std::vector<std::vector<int>> fanout_stats;
+    std::vector<std::vector<scalar>> distance_stats;
+    dump_tree(fp, root, root->level, fanout_stats, distance_stats);
+    fclose(fp);
+
+    char* new_filename = (char*)malloc(sizeof(char) * (((sizeof(filename))/(sizeof(filename[0]))) + 4));
+    sprintf(new_filename, "%s.top", filename);
+    fp = fopen(new_filename, "w");
+    fprintf(fp, "{\n");
+    for (std::size_t i = 0; i < fanout_stats.size(); i++) {
+        fprintf(fp, "\"%d\": {\n", root->level-((int)i));
+        fprintf(fp, "\"degree\": [");
+        for (std::size_t j = 0; j < fanout_stats[i].size(); j++) {
+            fprintf(fp, "%d", fanout_stats[i][j]);
+            if (j < fanout_stats[i].size()-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "],");
+        fprintf(fp, "\"distance\": [");
+        for (std::size_t j = 0; j < distance_stats[i].size(); j++) {
+            fprintf(fp, "%f", distance_stats[i][j]);
+            if (j < distance_stats[i].size()-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "]}");
+        if (i < fanout_stats.size()-1)
+            fprintf(fp, ",");
+    }
+    fprintf(fp, "}\n");
+    free(new_filename);
+}
+
 
 void SGTree::print_levels() const
 {

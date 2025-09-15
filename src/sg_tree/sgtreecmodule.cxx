@@ -776,6 +776,22 @@ static PyObject *sgtreec_stats(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static PyObject *sgtreec_dump(PyObject *self, PyObject *args)
+{
+  SGTree *obj;
+  size_t int_ptr;
+  const char* filename;
+
+  /*  parse the input, from python int to c++ int */
+  if (!PyArg_ParseTuple(args, "ns:sgtreec_dump", &int_ptr, &filename))
+    return NULL;
+
+  obj = reinterpret_cast< SGTree * >(int_ptr);
+  obj->dump_tree(filename);
+
+  Py_RETURN_NONE;
+}
+
 static PyObject *sgtreec_size(PyObject *self, PyObject *args)
 {
   SGTree *obj;
@@ -929,6 +945,7 @@ PyMODINIT_FUNC PyInit_sgtreec(void)
     {"deserialize", sgtreec_deserialize, METH_VARARGS, "Construct a SG Tree from deserializing."},
     {"display", sgtreec_display, METH_VARARGS, "Display the SG Tree."},
     {"stats", sgtreec_stats, METH_VARARGS, "Print statistics of the SG Tree."},
+    {"dump_tree", sgtreec_dump, METH_VARARGS, "Dump SG Tree structure to a JSON file."},
     {"size", sgtreec_size, METH_VARARGS, "Return number of points in the SG Tree."},
     {"spreadout", sgtreec_spreadout, METH_VARARGS, "Find well spreadout k points."},
     {"test_covering", sgtreec_test_covering, METH_VARARGS, "Check if covering property is satisfied."},

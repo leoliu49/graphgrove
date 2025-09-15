@@ -134,6 +134,9 @@ class NNS_L2(object):
   def stats(self):
     return sgtreec.stats(self.this)
 
+  def dump_tree(self, filename):
+    return sgtreec.dump_tree(self.this, filename)
+
   def test_covering(self):
     return sgtreec.test_covering(self.this)
 
