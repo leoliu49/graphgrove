@@ -78,7 +78,7 @@ bool SGTree::insert(SGTree::Node* current, const pointType& p, unsigned UID, sca
     {
         //release read lock then enter child
         current->mut.unlock_shared();
-        std::cout << "Duplicate entry!!!" << std::endl;
+        // std::cout << "Duplicate entry!!!" << std::endl;
         // std::cout << current->children[child_idx]->_p << std::endl;
         // std::cout << p << std::endl;
     }
@@ -196,7 +196,7 @@ bool SGTree::insert(const pointType& p, unsigned UID)
     scalar curr_root_dist = root->dist(p);
     if (curr_root_dist <= 0.0)
     {
-        std::cout << "Duplicate entry!!!" << std::endl;
+        // std::cout << "Duplicate entry!!!" << std::endl;
         // std::cout << root->_p << std::endl;
         // std::cout << p << std::endl;
     }
@@ -820,8 +820,7 @@ SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, u
             for (size_t i = 0; i < numPoints-1; ++i){
                 // std::cout << "Insert i " << i << " idx[i] " << idx[i] << std::endl;
                 utils::progressbar(i, numPoints);
-                if(!insert(pMatrix.col(idx[i]), idx[i]))
-                    std::cout << "Insert failed!!! " << idx[i] << std::endl;
+                insert(pMatrix.col(idx[i]), idx[i]);
             }
         }
         else
@@ -829,15 +828,13 @@ SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, u
             for (size_t i = 0; i < 50000; ++i){
                 // std::cout << "Insert i " << i << " idx[i] " << idx[i] << std::endl;
                 utils::progressbar(i, 50000);
-                if(!insert(pMatrix.col(idx[i]), idx[i]))
-                    std::cout << "Insert failed!!! " << idx[i] << std::endl;
+                insert(pMatrix.col(idx[i]), idx[i]);
             }
             utils::progressbar(50000, 50000);
             std::cerr<<std::endl;
             utils::parallel_for_progressbar(50000, numPoints-1, [&](size_t i)->void{
                 // std::cout << "Insert i " << i << " idx[i] " << idx[i] << std::endl;
-                if(!insert(pMatrix.col(idx[i]), idx[i]))
-                    std::cout << "Insert failed!!! " << idx[i] << std::endl;
+                insert(pMatrix.col(idx[i]), idx[i]);
             }, cores);
         }
     }
@@ -845,8 +842,7 @@ SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, u
     {
         for (size_t i = 0; i < numPoints-1; ++i){
             utils::progressbar(i, numPoints);
-            if(!insert(pMatrix.col(idx[i]), idx[i]))
-                std::cout << "Insert failed!!! " << idx[i] <<  std::endl;
+            insert(pMatrix.col(idx[i]), idx[i]);
         }
     }
    // calc_maxdist();
