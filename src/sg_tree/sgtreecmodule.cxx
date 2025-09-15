@@ -33,9 +33,10 @@ static PyObject *new_sgtreec(PyObject *self, PyObject *args)
 {
   int trunc;
   long use_multi_core;
+  double new_base;
   PyArrayObject *in_array;
 
-  if (!PyArg_ParseTuple(args,"O!il:new_sgtreec", &PyArray_Type, &in_array, &trunc, &use_multi_core))
+  if (!PyArg_ParseTuple(args,"O!ild:new_sgtreec", &PyArray_Type, &in_array, &trunc, &use_multi_core, &new_base))
     return NULL;
 
   npy_intp numPoints = PyArray_DIM(in_array, 0);
@@ -45,7 +46,7 @@ static PyObject *new_sgtreec(PyObject *self, PyObject *args)
   scalar * fnp = reinterpret_cast< scalar * >( PyArray_GetPtr(in_array, idx) );
   Eigen::Map<matrixType> pointMatrix(fnp, numDims, numPoints);
 
-  SGTree* cTree = SGTree::from_matrix(pointMatrix, trunc, use_multi_core);
+  SGTree* cTree = SGTree::from_matrix(pointMatrix, trunc, use_multi_core, new_base);
   size_t int_ptr = reinterpret_cast< size_t >(cTree);
   size_t node_ptr = reinterpret_cast< size_t >(cTree->get_root());
 

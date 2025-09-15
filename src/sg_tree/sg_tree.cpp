@@ -22,11 +22,9 @@ scalar* SGTree::compute_pow_table()
 {
     scalar* powdict = new scalar[2048];
     for (int i = 0; i < 2048; ++i)
-        powdict[i] = (scalar) pow(SGTree::base, i - 1024);
+        powdict[i] = (scalar) pow(base, i - 1024);
     return powdict;
 }
-
-scalar* SGTree::powdict = compute_pow_table();
 
 #ifdef PRINTVER
 std::map<int, std::atomic<unsigned>> SGTree::Node::dist_count;
@@ -37,7 +35,7 @@ bool SGTree::insert(SGTree::Node* current, const pointType& p, unsigned UID, sca
 {
     bool result = false;
 #ifdef DEBUG
-    if (current->dist(p) > current->covdist())
+    if (current->dist(p) > current->covdist(powdict))
         throw std::runtime_error("Internal insert got wrong input!");
     if (truncateLevel > 0 && current->level < maxScale - truncateLevel)
     {
@@ -84,7 +82,7 @@ bool SGTree::insert(SGTree::Node* current, const pointType& p, unsigned UID, sca
         // std::cout << current->children[child_idx]->_p << std::endl;
         // std::cout << p << std::endl;
     }
-    else if (use_nesting && dist_child > dist_current && dist_current <= current->sepdist()) 
+    else if (use_nesting && dist_child > dist_current && dist_current <= current->sepdist(powdict))
     {
         // nesting case where we need to add a new copy of the current node as a child of itself.
         assert(current->UID != current->children[child_idx]->UID);
@@ -116,7 +114,7 @@ bool SGTree::insert(SGTree::Node* current, const pointType& p, unsigned UID, sca
         }
 
     }
-    else if (dist_child <= current->sepdist() && (!use_nesting || dist_child <= dist_current))
+    else if (dist_child <= current->sepdist(powdict) && (!use_nesting || dist_child <= dist_current))
     {
         //release read lock then enter child
         Node* child = current->children[child_idx];
@@ -202,14 +200,14 @@ bool SGTree::insert(const pointType& p, unsigned UID)
         // std::cout << root->_p << std::endl;
         // std::cout << p << std::endl;
     }
-    else if (curr_root_dist > root->covdist())
+    else if (curr_root_dist > root->covdist(powdict))
     {
-        std::cout<<"Entered case 1: " << root->dist(p) << " " << root->covdist() << " " << root->level <<std::endl;
+        std::cout<<"Entered case 1: " << root->dist(p) << " " << root->covdist(powdict) << " " << root->level <<std::endl;
         std::pair<SGTree::Node*, scalar> fn = FurthestNeighbour(p);
         global_mut.unlock_shared();
         std::cout<<"Requesting global lock!" <<std::endl;
         global_mut.lock();
-        while (root->dist(p) > base * root->covdist()/(base-1))
+        while (root->dist(p) > base * root->covdist(powdict)/(base-1))
         {
             SGTree::Node* current = root;
             SGTree::Node* parent = NULL;
@@ -445,7 +443,7 @@ std::vector<std::pair<SGTree::Node*, scalar>> SGTree::kNearestNeighboursBeam(con
                         std::upper_bound( travel.begin(), travel.end(), pair_to_add, comp_pair),
                         pair_to_add
                     );
-                    // std::cout << "[added to beam 2]  less than " << current->sepdist() << " beam size " << beam.size() << " checking kid " << current->children[child_idx]->UID << " dist " << dist_child << std::endl;
+                    // std::cout << "[added to beam 2]  less than " << current->sepdist(powdict) << " beam size " << beam.size() << " checking kid " << current->children[child_idx]->UID << " dist " << dist_child << std::endl;
 
                     if (travel.size() > beamSize) {
                         travel.pop_back();
@@ -737,12 +735,14 @@ void SGTree::deserialize(char* buff)
 //constructor: NULL tree
 SGTree::SGTree(int truncate /*=-1*/ )
 {
+    base = SGTree::base_default;
     root = NULL;
     min_scale = 1000;
     max_scale = 0;
     truncate_level = truncate;
     N = 0;
     D = 0;
+    powdict = compute_pow_table();
 }
 
 //constructor: needs atleast 1 point to make a valid covertree
@@ -754,20 +754,28 @@ SGTree::SGTree(const pointType& p, int truncateArg /*=-1*/)
     N = 1;
     D = unsigned(p.rows());
 
+    base = SGTree::base_default;
+
     root = new SGTree::Node;
     root->_p = p;
     root->ID = 0;
     root->UID = 0;
     root->level = 0;
     root->maxdistUB = 0;
+    powdict = compute_pow_table();
 }
 
 //constructor: cover tree using points in the list between begin and end
-SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, unsigned cores /*=true*/)
+SGTree::SGTree(const Eigen::Map<matrixType>& pMatrix, int truncateArg /*=-1*/, unsigned cores /*=true*/, double new_base)
 {
     size_t numPoints = pMatrix.cols();
     bool use_multi_core = cores > 1;
     this->cores = cores;
+
+    // 0. Set base or gamma
+    base = static_cast<scalar>(new_base);
+    powdict = compute_pow_table();
+    std::cout << "SG Tree with base " << base << std::endl;
 
     //1. Compute the mean of entire data
     pointType mx = utils::ParallelAddMatrixNP(pMatrix).get_result()/(1.0*numPoints);
@@ -867,6 +875,8 @@ SGTree::~SGTree()
 
         delete current;
     }
+
+    delete powdict;
 }
 
 
@@ -875,9 +885,15 @@ SGTree::~SGTree()
 //contructor: using matrix in col-major form!
 SGTree* SGTree::from_matrix(const Eigen::Map<matrixType>& pMatrix, int truncate /*=-1*/, unsigned cores /*=true*/)
 {
-    std::cout << "SG Tree [v008] with base " << SGTree::base << std::endl;
+    return from_matrix(pMatrix, truncate, cores, SGTree::base_default);
+}
+
+//contructor: using matrix in col-major form!
+SGTree* SGTree::from_matrix(const Eigen::Map<matrixType>& pMatrix, int truncate /*=-1*/, unsigned cores /*=true*/, double new_base)
+{
+    std::cout << "SG Tree [v008] with base " << new_base << std::endl;
     std::cout << "SG Tree with Number of Cores: " << cores << std::endl;
-    SGTree* cTree = new SGTree(pMatrix, truncate, cores);
+    SGTree* cTree = new SGTree(pMatrix, truncate, cores, new_base);
     return cTree;
 }
 
@@ -904,9 +920,9 @@ bool SGTree::check_covering() const
         for (const auto& child : *curNode)
         {
             travel.push(child);
-            if( curNode->dist(child) > curNode->covdist() )
+            if( curNode->dist(child) > curNode->covdist(powdict) )
                 result = false;
-            //std::cout << *curNode << " -> " << *child << " @ " << curNode->dist(child) << " | " << curNode->covdist() << std::endl;
+            //std::cout << *curNode << " -> " << *child << " @ " << curNode->dist(child) << " | " << curNode->covdist(powdict) << std::endl;
         }
     }
 

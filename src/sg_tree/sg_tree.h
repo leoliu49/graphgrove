@@ -35,10 +35,7 @@ class SGTree
 {
 /************************* Internal Functions ***********************************************/
 protected:
-    /*** Base to use for the calculations ***/
-    static constexpr scalar base = 1.3;
-    static scalar* compute_pow_table();
-    static scalar* powdict;
+    static constexpr scalar base_default = 1.3;
     unsigned cores = -1;
     bool use_nesting = false;
 
@@ -61,15 +58,15 @@ public:
         #endif
 
         /*** Node modifiers ***/
-        scalar covdist() const                   // covering distance of subtree at current node
+        scalar covdist(scalar* powdict)                   // covering distance of subtree at current node
         {
             return powdict[level + 1024];
         }
-        scalar sepdist() const                   // separating distance between nodes at current level
+        scalar sepdist(scalar* powdict)                   // separating distance between nodes at current level
         {
             return powdict[level + 1023];
         }
-        scalar dist(const pointType& pp) const   // L2 distance between current node and point pp
+        scalar dist(const pointType& pp) const  // L2 distance between current node and point pp
         {
             #ifdef PRINTVER
             dist_count[level].fetch_add(1, std::memory_order_relaxed);
@@ -78,7 +75,7 @@ public:
         }
 
 
-        scalar dist(const Node* n) const         // L2 distance between current node and node n
+        scalar dist(const Node* n) const        // L2 distance between current node and node n
         {
             #ifdef PRINTVER
             dist_count[level].fetch_add(1, std::memory_order_relaxed);
@@ -148,11 +145,15 @@ public:
     };
 
 protected:
+    scalar base;                        // Base to use for the calculations
     Node* root;                         // Root of the tree
     std::atomic<int> min_scale;         // Minimum scale
     std::atomic<int> max_scale;         // Minimum scale
     int truncate_level;                 // Relative level below which the tree is truncated
     bool id_valid;
+
+    scalar* compute_pow_table();
+    scalar* powdict;
 
     std::atomic<unsigned> N;            // Number of points in the cover tree
     unsigned D;                         // Dimension of the points
@@ -175,7 +176,7 @@ public:
     // cover tree with one point as root
     SGTree(const pointType& p, int truncate = -1);
     // cover tree using points in the list between begin and end
-    SGTree(const Eigen::Map<matrixType>& pMatrix, int truncate = -1, unsigned cores = -1);
+    SGTree(const Eigen::Map<matrixType>& pMatrix, int truncate = -1, unsigned cores = -1, double new_base = 1.3);
 
     /*** Destructor ***/
     /*** Destructor: deallocating all memories by a post order traversal ***/
@@ -184,6 +185,7 @@ public:
 /************************* Public API ***********************************************/
     /*** Construct cover tree using all points in the matrix in row-major form ***/
     static SGTree* from_matrix(const Eigen::Map<matrixType>& pMatrix, int truncate = -1, unsigned cores = -1);
+    static SGTree* from_matrix(const Eigen::Map<matrixType>& pMatrix, int truncate = -1, unsigned cores = -1, double new_base = 1.3);
 
     /*** Get root ***/
     Node* get_root() {return root;}
