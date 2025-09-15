@@ -978,7 +978,7 @@ bool SGTree::check_covering() const
     return result;
 }
 
-void SGTree::dump_tree(FILE* fp, SGTree::Node* node, int root_lvl, std::vector<std::vector<int>>& fanout_stats, std::vector<std::vector<scalar>>& distance_stats) const {
+void SGTree::dump_tree(FILE* fp, SGTree::Node* node, int root_lvl, std::vector<std::vector<int>>& fanout_stats, std::vector<std::vector<float>>& distance_stats) const {
     fprintf(fp, "{\"d\":%f,", node->maxdistUB);
     fprintf(fp, "\"c\":[");
 
@@ -987,7 +987,7 @@ void SGTree::dump_tree(FILE* fp, SGTree::Node* node, int root_lvl, std::vector<s
         distance_stats.push_back({});
     }
     fanout_stats[root_lvl-node->level].push_back(node->children.size());
-    distance_stats[root_lvl-node->level].push_back(node->maxdistUB);
+    distance_stats[root_lvl-node->level].push_back((float) (node->maxdistUB));
 
     for (std::size_t i = 0; i < node->children.size(); i++) {
         dump_tree(fp, node->children[i], root_lvl, fanout_stats, distance_stats);
@@ -1001,35 +1001,37 @@ void SGTree::dump_tree(const char* filename) const
 {
     FILE* fp = fopen(filename, "w");
     std::vector<std::vector<int>> fanout_stats;
-    std::vector<std::vector<scalar>> distance_stats;
+    std::vector<std::vector<float>> distance_stats;
     dump_tree(fp, root, root->level, fanout_stats, distance_stats);
     fclose(fp);
 
-    char* new_filename = (char*)malloc(sizeof(char) * (((sizeof(filename))/(sizeof(filename[0]))) + 4));
-    sprintf(new_filename, "%s.top", filename);
-    fp = fopen(new_filename, "w");
+    std::string new_filename = std::string(filename) + ".top";
+    fp = fopen(new_filename.c_str(), "w");
     fprintf(fp, "{\n");
-    for (std::size_t i = 0; i < fanout_stats.size(); i++) {
+    std::size_t I = fanout_stats.size();
+    for (std::size_t i = 0; i < I; i++) {
         fprintf(fp, "\"%d\": {\n", root->level-((int)i));
         fprintf(fp, "\"degree\": [");
-        for (std::size_t j = 0; j < fanout_stats[i].size(); j++) {
+
+        std::size_t J = fanout_stats[i].size();
+        for (std::size_t j = 0; j < J; j++) {
             fprintf(fp, "%d", fanout_stats[i][j]);
-            if (j < fanout_stats[i].size()-1)
+            if (j < J-1)
                 fprintf(fp, ",");
         }
         fprintf(fp, "],");
         fprintf(fp, "\"distance\": [");
-        for (std::size_t j = 0; j < distance_stats[i].size(); j++) {
+        for (std::size_t j = 0; j < J; j++) {
             fprintf(fp, "%f", distance_stats[i][j]);
-            if (j < distance_stats[i].size()-1)
+            if (j < J-1)
                 fprintf(fp, ",");
         }
         fprintf(fp, "]}");
-        if (i < fanout_stats.size()-1)
+        if (i < I-1)
             fprintf(fp, ",");
     }
     fprintf(fp, "}\n");
-    free(new_filename);
+    fclose(fp);
 }
 
 
